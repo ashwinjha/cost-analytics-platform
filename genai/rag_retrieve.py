@@ -1,51 +1,41 @@
 import json
+import numpy as np
+import faiss
 import boto3
-import math
 
-# --- Cosine similarity ---
-def cosine_similarity(vec1, vec2):
-    dot = sum(a*b for a, b in zip(vec1, vec2))
-    norm1 = math.sqrt(sum(a*a for a in vec1))
-    norm2 = math.sqrt(sum(b*b for b in vec2))
-    return dot / (norm1 * norm2)
+# --- Load FAISS index ---
+index = faiss.read_index("genai/faiss_index.bin")
 
-# --- Bedrock runtime ---
-client = boto3.client("bedrock-runtime", region_name="us-east-1")
+with open("genai/faiss_texts.json", "r") as f:
+    texts = json.load(f)
 
-# --- Load stored embeddings ---
-with open("genai/anomaly_embeddings.json", "r") as f:
-    stored_chunks = json.load(f)
+# --- Bedrock client for embeddings ---
+bedrock_runtime = boto3.client("bedrock-runtime", region_name="us-east-1")
 
-# --- User query ---
 query = "Why did EC2 costs increase significantly?"
 
-# --- Embed the query ---
-response = client.invoke_model(
+# --- Embed query ---
+response = bedrock_runtime.invoke_model(
     modelId="amazon.titan-embed-text-v1",
-    body=json.dumps({
-        "inputText": query
-    }),
+    body=json.dumps({"inputText": query}),
     contentType="application/json",
     accept="application/json"
 )
 
-result = json.loads(response["body"].read())
-query_embedding = result["embedding"]
+embedding = json.loads(response["body"].read())["embedding"]
+query_vector = np.array([embedding]).astype("float32")
 
-# --- Compute similarity ---
-scores = []
+# Normalize
+faiss.normalize_L2(query_vector)
 
-for chunk in stored_chunks:
-    score = cosine_similarity(query_embedding, chunk["embedding"])
-    scores.append((score, chunk["text"]))
+# Search top 1
+distances, indices = index.search(query_vector, k=1)
 
-scores.sort(reverse=True)
+top_index = indices[0][0]
+top_text = texts[top_index]
 
-# --- Top match ---
-top_match = scores[0]
-
-print("Query:", query)
-print("\nMost relevant anomaly:\n")
-print(top_match[1])
-print("\nSimilarity score:", top_match[0])
+print("\nQuery:", query)
+print("\nTop Retrieved Context:\n")
+print(top_text)
+print("\nSimilarity Score:", distances[0][0])
 

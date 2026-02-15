@@ -1,0 +1,4 @@
+{"timestamp": "2026-02-15T13:17:38.756355", "event_type": "retrieval", "data": {"query": "Why did EC2 costs increase significantly?", "similarity_score": 0.6376003623008728}}
+{"timestamp": "2026-02-15T13:17:38.756595", "event_type": "generation", "data": {"query": "Why did EC2 costs increase significantly?", "latency_seconds": 0.1089}}
+{"timestamp": "2026-02-15T13:49:54.848196", "event_type": "retrieval", "data": {"query": "Why did EC2 costs increase?", "similarity_score": 12.473917007446289}}
+{"timestamp": "2026-02-15T13:49:54.848373", "event_type": "generation", "data": {"query": "Why did EC2 costs increase?", "latency_seconds": 0.1108}}
