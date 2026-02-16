@@ -1,10 +1,10 @@
 # Multi-Tenant Cost Analytics Platform
 
-### Spark Data Lake + Athena + RAG-Powered Cost Intelligence
+### Spark Lakehouse + Warehouse + RAG-Powered Cost Intelligence
 
-An end-to-end cloud cost analytics platform built using Spark on EC2, Amazon S3, and Athena, extended with a Retrieval-Augmented Generation (RAG) layer for cost anomaly explanation.
+An end-to-end cloud cost analytics platform built using Spark on EC2, Amazon S3, and Athena, extended with a Retrieval-Augmented Generation (RAG) layer for anomaly investigation.
 
-The system models raw billing events into canonical financial datasets and exposes an API layer that generates context-aware explanations using vector retrieval and an LLM abstraction layer.
+The system transforms raw billing events into canonical, partitioned financial datasets and exposes an API layer that generates context-aware explanations using vector retrieval and a provider-agnostic LLM abstraction.
 
 ---
 
@@ -13,29 +13,31 @@ The system models raw billing events into canonical financial datasets and expos
 Cloud cost and usage data introduces several non-trivial data engineering challenges:
 
 - Billing events arrive **late or out of order**
-- Previously reported costs may be **retroactively corrected**
-- Financial reporting requires **deterministic recomputation** for audits
+- Previously reported costs are **retroactively corrected**
+- Finance reporting requires **detinistic recomputation for audits**
 - Aggregations must prevent **double counting**
 - Downstream consumers require **stable, canonical financial datasets**
 
-In parallel, modern finance and engineering teams increasingly expect:
+In parallel, finance and engineering teams increasingly expect:
 
-- Natural-language explanations of anomalies
+- Natural-language explanations of cost anomalies
 - Self-serve analytical access
-- Context-aware insights rather than raw cost tables
+- Context-aware insights instead of static reports
 
 This platform addresses both layers:
 
-1. A finance-grade data foundation built on explicit modeling and partition-scoped recomputation.
-2. An explainable AI layer that retrieves historical anomalies and generates structured explanations via a RAG pipeline.
+1. A finance-grade data foundation built on explicit data modeling, partitioned lakehouse design, and deterministic backfills.
+2. A GenAI extension layer that retrieves historical anomalies and generates structured explanations through a RAG pipeline.
+---
+# PART I — Core Data Platform (Data Engineering)
 
 ---
 
-## 2. Architecture Overview
+## 2. Architecture Overview — Core Data Platform
 
 The system is implemented as two clearly separated layers:
 
-1. **Deterministic Data Platform (Spark + S3 + Athena)**
+1. **Deterministic Data Platform (Spark + S3 + Athena + Postgres)**
 2. **Retrieval-Augmented Generation (RAG) Service**
 
 This separation enforces clean ownership boundaries between data correctness and AI reasoning.
@@ -59,90 +61,88 @@ Stage 3 — Publish Canonical Daily Dataset (account-day)
         v
 Partitioned Parquet in S3 (partitioned by usage_date)
         |
-        v
-Queryable via Amazon Athena
-
+        +--------------------+
+        |                    |
+        v                    v
+Amazon Athena        Warehouse Load (Postgres)
+(Query Layer)        (Downstream Analytics)
 ```
+
 Key characteristics:
 - Explicit data grains at each stage 
 - Deterministic recomputation from normalized source data 
 - Partition-scoped overwrite semantics in S3
+- Glue catalog registration for metadata management
 - Canonical dataset optimized for financial reporting queries
-Each stage can be recomputed independently, enabling safe backfills and audit validation.
 
-###  2.2 GenAI Layer (RAG Service)
+Each stage owns its transformation contract and can be recomputed independently.
 
-The GenAI layer operates strictly on published canonical datasets.
-
-```text
-Daily Account Cost Dataset
-        |
-        v
-Anomaly Detection (percentage change logic)
-        |
-        v
-Text Chunk Generation
-        |
-        v
-Embedding Generation (Amazon Titan)
-        |
-        v
-FAISS Vector Index
-        |
-        v
-LLM Explanation API (FastAPI)
-```
-This layer enables:
-- Retrieval of historically similar anomalies 
-- Context-aware explanation generation 
-- Decoupled LLM provider abstraction 
-- Observable API latency tracking
-
-The AI layer does not modify source data — it consumes published outputs only.
+Backfills are partition-bounded and do not require full-table reloads, ensuring audit-safe and predictable recomputation.
 
 ---
 
 ## 3. Cloud Deployment (Implemented)
 
-The platform was deployed and executed on AWS to validate real-world integration.
+The platform was deployed and executed on AWS to validate end-to-end cloud integration across compute, storage, metadata, and query layers.
+
+---
 
 ### Compute Layer
-- **Spark on EC2 (t3.micro)**
-  - Spark installed manually
-  - IAM role attached for S3 access
+
+- **Spark on EC2**
+  - Custom Spark environment configured with Hadoop S3A integration
+  - IAM instance profile attached for secure S3 access
   - Jobs executed via `spark-submit`
+  - Deterministic partition-scoped writes to S3
+
+---
 
 ### Storage Layer
+
 - **Amazon S3**
   - Partitioned Parquet datasets written using `s3a://`
-  - `usage_date` partitioning for efficient pruning
-  - Partition-level overwrite for deterministic backfills
+  - `usage_date` used as partition key for pruning and bounded recomputation
+  - Partition-level overwrite semantics for safe backfills
+  - Immutable normalized layer for recomputation safety
+
+---
 
 ### Metadata & Query Layer
+
 - **AWS Glue Catalog**
-  - External table registered over S3 location
-  - Partition discovery via `MSCK REPAIR TABLE`
+  - External table registered over partitioned S3 location
+  - Dynamic partition discovery for incremental updates
 
 - **Amazon Athena**
   - Canonical dataset queried directly over Parquet
-  - Partition pruning verified
+  - Partition pruning verified through query inspection
   - Query results stored in S3
 
+---
+
 ### Security Model
+
 - IAM instance profile attached to EC2
 - Role-based S3 access (no hardcoded credentials)
-- Principle of least privilege for Bedrock access (embeddings only)
-
-This validates:
-- End-to-end cloud execution (compute → storage → query)
-- Lakehouse-style partitioned dataset design
-- Secure role-based access control
-- Reproducible execution outside local environment
+- IAM-scoped permissions limited to required services (S3 + embedding access)
+- No local secret storage in application code
 
 ---
+
+### Deployment Validation
+
+This cloud execution validates:
+
+- End-to-end execution from Spark compute → S3 storage → Athena query
+- Lakehouse-style partitioned dataset design
+- Secure, role-based access control
+- Reproducible execution outside local development environments
+
+---
+
 ## 4. Data Pipeline (Spark + S3 + Athena)
 
-This section describes the structured data platform responsible for ingesting, modeling, aggregating, and publishing canonical cost datasets.
+This section describes the deterministic data platform responsible for ingesting, modeling, aggregating, and publishing canonical cost datasets.
 
 All datasets are stored as **partitioned Parquet files in Amazon S3** and exposed via **AWS Glue + Amazon Athena**.
 
@@ -155,74 +155,86 @@ Spark jobs were executed on an EC2 instance using local Spark mode with S3-backe
 Run sequentially:
 
 ```bash
-spark-submit src/stage1_read_raw.py
-spark-submit src/stage2_aggregate_daily_cost.py
-spark-submit src/stage3_publish_daily_account_cost.py
+spark-submit pipeline/batch/stage1_normalize.py
+spark-submit pipeline/batch/stage2_aggregate.py
+spark-submit pipeline/batch/stage3_publish.py
 ```
 End-to-End Flow:
 1. Spark jobs execute on EC2.
 2. Partitioned Parquet datasets are written to S3.
-3. Glue table is registered over the S3 location.
-4. Athena queries the canonical dataset.
+3. Glue external table references the S3 location.
+4. Athena queries the canonical dataset with partition pruning.
 
-This validates:
-- Cloud storage integration via s3a://
-- Partitioned lakehouse design
-- Queryable analytics dataset
-- Secure IAM-based access
-- Deterministic recomputation capability
+This execution validates:
+- Deterministic partition-scoped writes 
+- Reproducible recomputation 
+- Lakehouse-style storage patterns 
+- Queryable analytics datasets without data movement
 
 ---
 
+### 4.2 Repository Structure (Keep mostly same, slight polish)
+
+```md
 ### 4.2 Repository Structure
 
 ```text
-src/                            # Spark data platform
-  stage1_read_raw.py
-  stage2_aggregate_daily_cost.py
-  stage3_publish_daily_account_cost.py
+pipeline/
+  batch/                       # Deterministic Spark pipeline
+    stage1_normalize.py
+    stage2_aggregate.py
+    stage3_publish.py
+
+  dq/                          # Data quality validation
+    validate_daily_account_cost.py
+
+  glue_jobs/                   # Glue-compatible Spark job scripts
+
+  streaming/                   # Kafka producer/consumer demo
+
+  warehouse/                   # Postgres warehouse load script
+
+genai/                         # Retrieval-Augmented Generation layer
 
 data/
   raw_billing_events.csv
-
-dq/
-  validate_daily_account_cost.py
-
-genai/                          # GenAI + RAG Layer (see Section 5)
 
 docs/
   data_product.md
 
 README.md
 ```
-The `src/` directory contains the deterministic data pipeline.
+The `pipeline/batch` directory contains the deterministic data pipeline.
 
-The `genai/` directory contains the Retrieval-Augmented Generation layer (described later).
+The `genai/` directory contains the Retrieval-Augmented Generation layer (described later in Section 7).
 
 ---
 
 ### 4.3 Data Model
 
-The platform is built around explicit canonical data models with well-defined grains, partitioning strategy, and deterministic recomputation guarantees.
+The platform is built around explicit canonical data models with well-defined grains, partitioning semantics, and deterministic recomputation guarantees.
 
-All datasets are stored as **partitioned Parquet files in S3** and exposed to downstream consumers via **AWS Glue + Amazon Athena**.
+All datasets are stored as **partitioned Parquet files in S3** and exposed through **AWS Glue + Athena**.
 
 ---
 
 ### Stage 1 — Normalized Billing Events
 
+
 **Location:** `s3://cost-analytics-ashwin-0310/normalized/`  
 **Grain:** `event_id`
 
-**Purpose**
+Purpose:
+
 - Deduplicate raw billing events using latest-ingestion-wins semantics
 - Preserve late-arriving and corrected events
-- Establish a stable system of record for recomputation
+- Establish an immutable system of record for recomputation
 
-**Characteristics**
-- Immutable writes
+Characteristics:
+
 - Idempotent reruns
-- Source-of-truth dataset for all downstream transformations
+- Immutable partition writes
+- Sole source for downstream aggregations
 
 ---
 
@@ -234,12 +246,12 @@ All datasets are stored as **partitioned Parquet files in S3** and exposed to do
 **Grain:** `(account_id, service_name, usage_date)`  
 **Metric:** `total_cost_usd`
 
-**Why this grain?**
+This grain:
+
 - Prevents event-level explosion
 - Enables service-level cost attribution
-- Supports efficient Athena queries with partition pruning
-
-This layer is optimized for analytical workloads and serves as the primary fact table for finance reporting.
+- Supports anomaly detection and drill-down analysis
+- Enables efficient Athena partition pruning
 
 ---
 
@@ -249,51 +261,335 @@ This layer is optimized for analytical workloads and serves as the primary fact 
 **Grain:** `(account_id, usage_date)`  
 **Derived From:** Stage 2 fact table
 
-**Columns**
+Columns:
+
 - `account_id`
 - `usage_date`
 - `total_cost_usd`
 - `data_complete`
 - `published_at`
 
-This represents the authoritative daily cost view for consumers.
+This dataset represents the authoritative daily cost view for downstream consumers.
 
-All SLAs, data quality validation, and backfill guarantees are enforced at this layer before publication.
+All SLAs, validation checks, and partition-level publish semantics are enforced at this layer.
 
 ---
-### Dimensional Modeling Strategy
 
-Dimensions are logically separated from fact tables and designed to evolve independently.
+### 4.4 Dimensional Modeling Strategy
 
-- `dim_account` — account metadata and billing ownership
+Dimensions are logically separated from fact tables and evolve independently.
+
+- `dim_account` — billing ownership metadata
 - `dim_service` — service identifiers (EC2, S3, etc.)
 - `dim_region` — geographic cost attribution
 - `dim_pricing_model` — on-demand, reserved, spot
 
-This separation ensures:
-- Fact table grains remain stable
-- Schema evolution in dimensions does not require fact rewrites
-- Downstream joins remain controlled and predictable
+This separation:
 
-### Why This Model
-
-- Account-day is the canonical financial grain required for reporting and forecasting.
-- Service-day enables controlled drill-down and anomaly detection.
-- Explicit grains prevent ambiguous rollups.
-- Partitioning by usage_date enables Athena partition pruning and cost-efficient scans.
-
-### Double Counting Prevention
-
-Double counting is prevented through:
-
-- Event-level deduplication before aggregation
-- Explicit aggregation grain enforcement
-- Partition-level overwrite semantics in S3
-- Reprocessing always starting from normalized source events
+- Preserves fact grain stability
+- Enables controlled schema evolution
+- Prevents cascading downstream rewrites
+- Keeps analytical joins predictable
 
 ---
 
-## 5. GenAI RAG Pipeline
+### 4.5 Why This Model
+
+- `account_id + usage_date` is the canonical financial reporting grain.
+- `account_id + service_name + usage_date` enables controlled drill-down and anomaly detection.
+- Explicit grains eliminate ambiguous rollups and hidden double counting.
+- Partitioning by `usage_date` ensures bounded recomputation and cost-efficient querying.
+
+This modeling approach balances financial correctness, analytical flexibility, and GenAI-ready anomaly retrieval.
+
+---
+
+### 4.6 Double Counting Prevention
+
+
+Double counting is prevented by:
+
+- Enforcing event-level deduplication prior to aggregation
+- Maintaining explicit aggregation grains
+- Using partition-scoped overwrite semantics in S3
+- Recomputing exclusively from normalized source data
+
+Derived datasets are never used as recomputation inputs.
+
+---
+
+## 5. Warehouse & Streaming Extensions
+
+In addition to the deterministic batch pipeline, the platform includes optional extensions to demonstrate managed execution, streaming patterns, and downstream warehouse integration.
+
+These extensions are modular and do not alter the core canonical data platform.
+
+---
+
+### 5.1 Glue Job (Managed Spark Execution)
+
+A Glue-compatible version of the Stage 2 aggregation logic was created to demonstrate portability to managed Spark environments.
+
+Key characteristics:
+
+- Glue job script stored in `pipeline/glue_jobs/`
+- External S3 script path configuration
+- IAM-based execution role (`AWSGlueServiceRole`)
+- Writes partitioned Parquet to S3
+- Compatible with Glue Catalog + Athena
+
+Purpose:
+
+- Demonstrates Spark portability beyond EC2
+- Validates managed job execution model
+- Aligns with enterprise Spark deployment patterns
+
+The underlying transformation logic remains identical to the EC2 Spark implementation, ensuring deterministic behavior across environments.
+
+---
+
+### 5.2 Kafka Streaming Skeleton
+
+A lightweight Kafka producer/consumer demo was implemented using Docker-based Kafka and Zookeeper.
+
+Components:
+
+- `pipeline/streaming/kafka_producer.py`
+- `pipeline/streaming/kafka_consumer.py`
+- `docker-compose.yml` for local Kafka cluster
+
+Purpose:
+
+- Demonstrates understanding of event-driven ingestion patterns
+- Simulates streaming cost event publishing
+- Illustrates separation between streaming ingestion and batch canonical modeling
+
+Important architectural note:
+
+The core financial reporting pipeline remains batch-oriented (T+1 model), while streaming is treated as an ingestion layer rather than a financial publish layer.
+
+This reflects real-world finance systems where correctness supersedes real-time freshness.
+
+---
+
+### 5.3 Warehouse Load (Postgres / Redshift-ready)
+
+A warehouse load script was implemented to demonstrate downstream analytics integration.
+
+Components:
+
+- `pipeline/warehouse/load_to_warehouse.py`
+- Docker-based Postgres instance (`cost_warehouse`)
+- SQLAlchemy-based data load
+
+Workflow:
+
+1. Canonical partitioned Parquet exported from S3.
+2. Loaded into Postgres table `daily_account_cost`.
+3. Table becomes immediately queryable for BI-style analytics.
+
+Purpose:
+
+- Demonstrates data lake → warehouse pattern
+- Validates schema portability
+- Shows familiarity with SQL-based analytical consumption
+
+The script is Redshift-compatible with minimal connection string changes.
+
+---
+
+## 6. Observability & Operational Controls
+
+The platform enforces financial correctness through explicit validation, partition-scoped publishing, and deterministic recomputation guarantees.
+
+---
+
+### 6.1 Data Availability Model (T+1)
+
+The canonical dataset (`daily_account_cost`) follows a **T+1 publishing model**:
+
+- Daily aggregates are published the next day.
+- A `usage_date` partition is only marked complete after validation passes.
+- Publishing is partition-scoped and overwrite-safe.
+
+This reflects finance workloads where auditability and correctness outweigh real-time ingestion.
+
+---
+
+### 6.2 Data Quality Enforcement
+
+Data validation is implemented as executable logic in:
+
+`pipeline/dq/validate_daily_account_cost.py`
+
+Validation invariants:
+
+- No nulls in primary keys (`account_id`, `usage_date`)
+- No negative `total_cost_usd`
+- No empty daily partitions
+- Deterministic row counts across recomputation windows
+
+If validation fails:
+
+- The partition is not published
+- The job exits with a non-zero status
+- Previously published partitions remain queryable
+
+This ensures incomplete or corrupt financial data is never exposed downstream.
+
+---
+
+### 6.3 Deterministic Backfills
+
+The pipeline supports partition-scoped deterministic recomputation.
+
+Guarantees:
+
+- Raw billing events are immutable.
+- Deduplication uses `(event_id, ingestion_date)` with latest-ingestion-wins semantics.
+- Aggregations always recompute from normalized source data.
+- Only impacted `usage_date` partitions are overwritten.
+
+**Backfill workflow:**
+
+1. Late or corrected billing events arrive.
+2. A rolling window (e.g., 30–90 days) is reprocessed.
+3. Only affected partitions are overwritten.
+4. Unaffected partitions remain unchanged.
+
+Recomputation is idempotent, bounded, and audit-safe.
+
+---
+
+### 6.4 Failure Semantics
+
+Each stage owns its output contract.
+
+If a stage fails:
+
+- Downstream stages do not execute.
+- No partial partitions are published.
+- Previously valid partitions remain available.
+
+All writes use partition-scoped overwrite semantics in S3, ensuring atomic partition visibility.
+
+---
+
+### 6.5 Ownership Boundaries
+
+Ownership is explicitly separated:
+
+- Stage 1 — event normalization correctness
+- Stage 2 — aggregation grain guarantees
+- Stage 3 — canonical publishing contract
+- RAG layer — retrieval accuracy and explanation logic
+
+This separation reduces cross-layer coupling and simplifies incident debugging.
+
+---
+
+### 6.6 Monitoring & Observability Signals
+
+#### Spark Pipeline Signals
+
+- Record counts per stage
+- Partition-level write confirmation
+- Validation pass/fail status
+- Deterministic recomputation verification
+
+#### RAG / API Signals
+
+- Structured request logging
+- Retrieval latency measurement
+- Top-K similarity tracking
+- LLM generation time monitoring
+
+---
+# PART II — GenAI Extension (RAG + LLM Layer)
+
+---
+
+## 7. GenAI Architecture Overview
+
+The GenAI layer is implemented strictly as an **augmentation layer** on top of the canonical published dataset.
+
+It does not modify, rewrite, or override structured financial data.  
+It consumes only validated outputs from the Spark pipeline.
+
+This preserves a strict separation between:
+
+- **Data correctness (Spark platform)**
+- **AI interpretation (RAG layer)**
+
+---
+
+### 7.1 RAG Flow
+
+```text
+Canonical Daily Account Dataset (S3 / Athena)
+        |
+        v
+Anomaly Detection (percentage change logic)
+        |
+        v
+Text Chunk Generation (structured anomaly narratives)
+        |
+        v
+Embedding Generation (Amazon Titan)
+        |
+        v
+FAISS Vector Index (Top-K Similarity Search)
+        |
+        v
+LLM Abstraction Layer
+        |
+        v
+FastAPI Explanation Endpoint
+```
+---
+
+### 7.2 Design Principles
+- The RAG layer operates only on published canonical datasets
+- Retrieval is deterministic (Top-K cosine similarity)
+- Embeddings are precomputed and stored
+- LLM invocation is abstracted via a provider-agnostic interface
+- LLM invocation is abstracted via a provider-agnostic interface
+
+
+The AI layer does not modify source data — it consumes published outputs only
+
+---
+
+### 7.3 Why RAG Instead of Direct LLM Calls?
+
+Direct LLM prompting over raw cost tables introduces:
+- Hallucination risk 
+- Lack of historical grounding 
+- Non-reproducible reasoning
+
+RAG mitigates this by:
+- Retrieving historically similar anomalies 
+- Injecting structured financial context into prompts 
+- Constraining reasoning to known prior patterns
+
+---
+
+### 7.4 System Boundaries
+
+The GenAI layer:
+- Does not write to S3 
+- Does not mutate canonical datasets 
+- Does not bypass validation logic 
+- Does not operate on raw ingestion data
+
+It strictly consumes validated, published financial outputs.
+
+This preserves financial integrity while enabling AI-driven interpretability.
+
+
+---
+
+## 8. GenAI RAG Pipeline
 
 
 The GenAI layer augments the canonical cost dataset with natural-language explanations of cost anomalies using a Retrieval-Augmented Generation (RAG) architecture.
@@ -302,7 +598,7 @@ The objective is not chatbot functionality, but **context-aware analytical reaso
 
 ---
 
-### 5.1 Anomaly Chunking
+### 8.1 Anomaly Chunking
 Cost anomalies are first detected using percentage change logic at the `(account_id, service_name, usage_date)` grain.
 
 Each anomaly is converted into a structured natural-language chunk:
@@ -330,7 +626,7 @@ These chunks are stored as structured JSON:
 Chunking is deterministic and reproducible from canonical data.
 
 ---
-### 5.2 Embedding Generation (Titan)
+### 8.2 Embedding Generation (Titan)
 Each anomaly chunk is embedded using Amazon Titan Text Embeddings:
 
 ```python
@@ -357,7 +653,7 @@ Embeddings are computed separately from explanation generation to:
 
 ---
 
-### 5.3 Vector Index (FAISS)
+### 8.3 Vector Index (FAISS)
 Embeddings are indexed locally using FAISS.
 
 Why FAISS (instead of a managed vector DB):
@@ -378,7 +674,7 @@ The vector index is rebuilt whenever anomaly chunks are regenerated.
 
 ---
 
-### 5.4 Retrieval (Top-K)
+### 8.4 Retrieval (Top-K)
 When a user submits a query:
 
 Example:
@@ -401,7 +697,7 @@ This ensures:
 
 ---
 
-### 5.5 LLM Abstraction Layer
+### 8.5 LLM Abstraction Layer
 
 The LLM layer is implemented via a provider-agnostic abstraction:
 
@@ -427,7 +723,7 @@ Instruction to explain causality
 The LLM never receives raw tables — only curated anomaly context.
 
 ---
-### RAG Design Principles
+### 8.6 RAG Design Principles
 
 This implementation enforces:
 - Clear separation of retrieval and generation 
@@ -440,7 +736,29 @@ The RAG layer augments — but does not replace — the structured data platform
 
 ---
 
-## 6. API Layer
+### 8.7 LangChain Orchestration (Optional Extension)
+
+To demonstrate structured LLM orchestration patterns, the RAG pipeline can be implemented using **LangChain abstractions**:
+
+- `PromptTemplate` for structured prompt construction
+- `RunnableSequence` for retrieval + generation chaining
+- Pluggable vector store interface
+- Provider-agnostic LLM wrapper integration
+
+This formalizes:
+
+- Retrieval → Context Injection → Generation
+- Chain-of-responsibility execution
+- Modular component composition
+
+LangChain is used strictly as an orchestration framework — not as a replacement for deterministic retrieval logic.
+
+The core data modeling, anomaly chunking, and embedding generation remain framework-independent.
+
+
+---
+
+## 9. API Layer
 
 The RAG pipeline is exposed via a lightweight FastAPI service to enable programmatic access to cost explanations.
 
@@ -448,7 +766,7 @@ This service acts as a thin orchestration layer — it does not contain retrieva
 
 ---
 
-### 6.1 Service Architecture
+### 9.1 Service Architecture
 
 The API layer is structured as:
 
@@ -470,7 +788,7 @@ This separation ensures:
 - LLM providers can be swapped without API changes 
 - Unit testing is simplified
 ---
-### 6.2 Endpoint Design
+### 9.2 Endpoint Design
 
 Endpoint:
 ```bash
@@ -503,7 +821,7 @@ The API:
 
 ---
 
-### 6.3 Provider-Agnostic LLM Integration
+### 9.3 Provider-Agnostic LLM Integration
 
 The API does not directly call Anthropic or OpenAI.
 
@@ -511,8 +829,6 @@ Instead, it uses:
 ```text
 LLMClient.generate(prompt)
 ```
-
-
 
 This abstraction was introduced after encountering:
 - Bedrock marketplace restrictions 
@@ -525,7 +841,7 @@ By decoupling the provider:
 - Infrastructure friction does not affect consumers
 ---
 
-### 6.4 Deployment Model
+### 9.4 Deployment Model
 
 The API is deployed on the same EC2 instance as Spark for demonstration purposes.
 
@@ -541,7 +857,7 @@ The current implementation validates:
 - Real HTTP exposure of GenAI workflows
 
 ---
-### 6.5 Why an API Layer?
+### 9.5 Why an API Layer?
 
 Exposing RAG as an API enables:
 - Integration with BI tools 
@@ -553,95 +869,7 @@ This moves the system from a batch analytics pipeline to an interactive intellig
 
 ---
 
-## 7. Observability & Operational Controls
-
-The platform enforces correctness, recomputation safety, and publishing guarantees through explicit validation and partition-scoped semantics.
-
----
-
-### 7.1 Data Availability SLA
-
-The canonical dataset (`daily_account_cost`) follows a **T+1 publishing model**:
-
-- Daily aggregates are published the next day after ingestion.
-- A `usage_date` partition is only marked complete once validation checks pass.
-- Publishing is partition-scoped and overwrite-safe.
-
-This mirrors finance workloads where correctness and auditability outweigh real-time freshness.
-
----
-
-### 7.2 Data Quality & Validation
-
-Data quality validation is implemented as executable logic in:
- `dq/validate_daily_account_cost.py`
-
-
-Validation invariants:
-
-- No nulls in primary keys (`account_id`, `usage_date`)
-- No negative `total_cost_usd`
-- No empty daily partitions
-- Deterministic row counts across recomputation windows
-
-If validation fails:
-
-- The partition is not published
-- The job exits with non-zero status
-- Previously published partitions remain intact
-
-This prevents incomplete or corrupt financial data from being exposed downstream.
-
----
-
-### 7.3 Deterministic Backfills
-
-The pipeline supports partition-scoped deterministic recomputation.
-
-Key guarantees:
-
-- Raw billing data is immutable.
-- Deduplication is deterministic using `(event_id, ingestion_date)` (latest-ingestion-wins).
-- Aggregations are recomputed from normalized source data — never from derived outputs.
-- Only impacted `usage_date` partitions are overwritten.
-
-**Backfill workflow:**
-
-1. Late or corrected billing events arrive.
-2. A rolling window (e.g., 30–90 days) is reprocessed.
-3. Only affected partitions are overwritten in S3.
-4. Unaffected partitions remain unchanged.
-
-Recomputation is idempotent and bounded.
-
----
-
-### 7.4 Failure Semantics
-
-Each pipeline stage owns its output contract.
-
-If a stage fails:
-
-- Downstream stages do not execute.
-- No partial partitions are published.
-- Previously valid partitions remain queryable in Athena.
-
-All writes use partition-scoped overwrite semantics in S3, ensuring atomic visibility at the partition level.
-
----
-
-### 7.5 Monitoring & Observability
-
-Monitoring is implemented at both the data platform and GenAI layers.
-
-#### Spark Pipeline Signals
-
-- Record counts per stage
-- Partition-level write confirmation
-- Validation pass/fail status
-- Deterministic recomputation checks
-
-#### GenAI / RAG Service Signals
+## 10. Monitoring & Observability (GenAI Layer)
 
 The FastAPI service includes:
 
@@ -660,27 +888,18 @@ This provides visibility into:
 Monitoring is lightweight but aligned with production observability patterns.
 
 ---
-
-### 7.6 Ownership Boundaries
-
-Ownership is explicitly separated:
-
-- Stage 1 — event normalization correctness
-- Stage 2 — aggregation grain guarantees
-- Stage 3 — canonical publishing contract
-- RAG layer — retrieval accuracy and explanation generation
-
-Each layer enforces its own invariants and does not rely on downstream correction.
-
-This separation simplifies debugging, recomputation, and incident response.
+# PART III — Validation & Evidence
 
 ---
-## 8. Execution Evidence
+
+## 11. Execution Evidence
 
 The platform was executed end-to-end on AWS infrastructure and validated through compute, storage, query, and API layers.
 
 ---
-### Spark Execution on EC2
+### Core Data Platform
+
+#### 1.  Spark Execution on EC2
 
 Spark aggregation job executed on AWS EC2, writing partitioned Parquet outputs to S3.
 
@@ -688,7 +907,7 @@ Spark aggregation job executed on AWS EC2, writing partitioned Parquet outputs t
 
 ---
 
-### Partitioned Parquet Output in S3
+#### 2. Partitioned Parquet Output in S3
 
 Daily cost fact table stored as partitioned Parquet files in S3 (`usage_date` partition).
 
@@ -696,15 +915,45 @@ Daily cost fact table stored as partitioned Parquet files in S3 (`usage_date` pa
 
 ---
 
-### Athena Query on Canonical Dataset
+#### 3.  Athena Query on Canonical Dataset
 
 Canonical dataset queried via Amazon Athena over partitioned Parquet.
 
 ![Athena Query](docs/images/athena_query.png)
 
 ---
+#### 4.   Glue Job Execution (Managed Spark)
 
-### RAG API Execution
+AWS Glue job executing Stage 2 aggregation using managed Spark infrastructure.
+
+![Glue Job Execution1](docs/images/glue_job_execution1.png)
+
+![Glue Job Execution2](docs/images/glue_job_execution2.png)
+
+---
+### Streaming Extension
+
+#### 5.  Kafka Producer-Consumer Demo
+
+Local Kafka producer emitting cost events and consumer processing them in real time.
+
+
+![Kafka Producer](docs/images/kafka_producer.png)
+![Kafka Consumer](docs/images/kafka_consumer.png)
+
+---
+### Warehouse Load
+
+#### 6. Postgres Warehouse Table Load
+
+Partitioned Parquet dataset exported from S3 and loaded into Postgres warehouse table.
+
+![Postgres Warehouse Table](docs/images/postgres_table_load.png)
+
+---
+### GenAI Extension
+
+#### 7.  RAG API Execution
 
 FastAPI service retrieving contextual anomaly and generating explanation.
 
@@ -712,69 +961,69 @@ FastAPI service retrieving contextual anomaly and generating explanation.
 
 ---
 
-## 9. Design Decisions & Tradeoffs
+## 12. Design Decisions & Tradeoffs
 
-This platform was intentionally designed with finance-grade correctness, deterministic recomputation, and operational simplicity as primary constraints.
+The platform was intentionally designed around finance-grade correctness, deterministic recomputation, and operational simplicity as primary constraints.
+
+While streaming and warehouse extensions were implemented for architectural completeness, the core financial model remains batch-oriented by design.
 
 ---
 
-### 9.1 Batch vs Streaming
+### 12.1 Batch vs Streaming ~~ We did incorporate streaming didnt we? 
 
-**Decision:** Batch processing (T+1 model)
+**Primary Architecture** : Batch processing (T+1 model)
 
-Cloud billing data is correction-heavy and frequently retroactively adjusted.  
-Streaming ingestion would introduce state management complexity without improving financial accuracy.
+Cloud billing data is correction-heavy and frequently retroactively adjusted.
+A real-time streaming architecture would introduce state management and reconciliation complexity without improving financial correctness.
 
 Batch processing enables:
-
-- Deterministic recomputation
-- Partition-scoped backfills
+- Deterministic recomputation 
+- Partition-scoped backfills 
 - Clear publish cutoffs (T+1)
 - Simplified validation and failure handling
 
-For finance workloads, correctness and auditability take precedence over low-latency ingestion.
+A Kafka-based streaming demo was implemented separately to demonstrate ingestion fundamentals, but the canonical financial model remains batch-based.
+
+For finance workloads, correctness and auditability take precedence over ingestion latency.
 
 ---
 
-### 9.2 Partitioning Strategy
+### 12.2 Partitioning Strategy
 
-**Partition Key:** `usage_date`
+**Partition Key**: `usage_date`
 
 All fact tables are partitioned by `usage_date` in S3.
 
 This enables:
-
 - Bounded recomputation (only affected dates are overwritten)
-- Efficient Athena partition pruning
-- Predictable daily compute cost
+- Efficient Athena partition pruning 
+- Predictable daily compute cost 
 - Atomic partition-level publish semantics
 
 Backfills overwrite only impacted partitions, avoiding full-table rewrites and minimizing scan cost.
 
 ---
 
-### 9.3 Execution Environment — EC2 over EMR
+### 12.3 Execution Environment — EC2 over EMR
 
-**Decision:** Spark on EC2 (local mode)
+**Decision**: Spark on EC2 (local mode)
 
 The objective was to demonstrate:
-
-- Explicit Spark configuration control
+- Explicit Spark configuration control 
 - Direct S3 integration via `s3a://`
-- IAM-based secure access patterns
+- IAM-based secure access patterns 
 - Dependency management (Hadoop AWS packages)
 
 EMR was intentionally avoided to:
-
-- Reduce infrastructure overhead
-- Stay within AWS free-tier constraints
+- Reduce infrastructure overhead 
+- Stay within AWS free-tier constraints 
 - Keep focus on data modeling and correctness
 
 The Spark code remains portable to EMR without modification.
 
 ---
 
-### 9.4 Parquet over CSV
+### 12.4 Parquet over CSV
 
 **Decision:** Parquet
 
@@ -790,7 +1039,7 @@ Partitioned Parquet in S3 enables scalable analytical querying.
 
 ---
 
-### 9.5 Cost vs Freshness
+### 12.5 Cost vs Freshness ~~ We did incorporate streaming, right? 
 
 **Decision:** Cost-optimized batch architecture
 
@@ -803,26 +1052,25 @@ This system targets finance reporting use cases where:
 
 are more important than real-time ingestion.
 
-The architecture intentionally avoids complexity that does not materially improve financial correctness.
+Streaming capabilities were implemented as an architectural extension, not as the primary cost processing model.
 
 ---
 
-## 10. Key Engineering Learnings
+## 13. Key Engineering Learnings ~~
 
-Building this platform surfaced several real-world cloud engineering constraints:
+Implementing the platform surfaced realistic cloud engineering constraints:
 
-- **Filesystem abstraction differences** (local vs S3) required explicit `s3a://` configuration and Hadoop AWS package integration.
-- **Spark dependency management** required injection of Hadoop S3A and AWS SDK bundles for cloud storage compatibility.
-- **IAM and service access policies** blocked Bedrock invocation, reinforcing the importance of least-privilege configuration.
-- **Marketplace model constraints** required redesigning the LLM layer to be provider-agnostic.
-- **Git remote conflicts** required merge + pull strategy correction.
-- **SSH key permission hardening** (`chmod 400`) was required for secure EC2 access.
+- S3 integration required explicit `s3a://` configuration and Hadoop AWS dependency alignment.
+- Spark runtime required proper AWS SDK bundling for distributed S3 access.
+- IAM policies enforced least-privilege access, requiring explicit Bedrock and S3 permissions.
+- Marketplace LLM access restrictions motivated a provider-agnostic LLM abstraction layer.
+- Secure EC2 access required strict SSH key permission hardening (`chmod 400`).
 
-These issues reflect realistic infrastructure debugging scenarios encountered in production cloud environments.
+These constraints reflect common production considerations in cloud-based data platforms.
 
 ---
 
-## 11. Business Impact
+## 14. Business Impact ~~
 
 This platform demonstrates how structured data engineering and GenAI capabilities can be combined to improve financial observability.
 
@@ -849,16 +1097,19 @@ The RAG layer reduces manual anomaly investigation time by:
 
 ---
 
-## 12. Project Highlights
+## 15. Project Highlights ~~
 
 - Canonical data modeling with explicit grain ownership
-- Partitioned lakehouse design (Spark + S3 + Athena)
-- Deterministic recomputation and backfill safety
+- Partitioned lakehouse architecture (Spark + S3 + Athena)
+- Deterministic recomputation and partition-scoped backfills
+- Kafka-based streaming ingestion demo
+- Warehouse loading via Postgres
 - Vector search integration using FAISS
-- LLM abstraction layer decoupled from provider
-- Observable FastAPI service with latency tracking
+- Vector search integration using FAISS
+- Provider-agnostic LLM abstraction layer
 
 This project combines production-oriented data engineering patterns with modern GenAI infrastructure design.
 
 ---
+
 
