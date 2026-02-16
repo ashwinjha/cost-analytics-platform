@@ -1,5 +1,11 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import sum as _sum, lit, current_timestamp
+import os
+
+BASE_OUTPUT_PATH = os.getenv(
+    "BASE_OUTPUT_PATH",
+    "s3a://cost-analytics-ashwin-0310"
+)
 
 spark = (
     SparkSession.builder
@@ -11,7 +17,7 @@ spark = (
 # ------------------------------------------------
 # Read Stage 2 fact
 # ------------------------------------------------
-input_path = "/home/ashwin/spark_outputs/stage2_account_service_day_cost"
+input_path = f"{BASE_OUTPUT_PATH}/facts/daily_account_cost"
 
 service_day_df = spark.read.parquet(input_path)
 
@@ -47,7 +53,7 @@ published_df.show(truncate=False)
 # ------------------------------------------------
 # Write canonical dataset
 # ------------------------------------------------
-output_path = "/home/ashwin/spark_outputs/stage3_daily_account_cost"
+output_path = f"{BASE_OUTPUT_PATH}/published/daily_account_cost"
 
 (
     published_df

@@ -1,6 +1,12 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, row_number
 from pyspark.sql.window import Window
+import os
+
+BASE_OUTPUT_PATH = os.getenv(
+    "BASE_OUTPUT_PATH",
+    "s3a://cost-analytics-ashwin-0310"
+)
 
 spark = (
     SparkSession.builder
@@ -32,7 +38,7 @@ normalized_df = (
 )
 
 # Write Parquet to Linux filesystem
-output_path = "/home/ashwin/spark_outputs/stage1_normalized"
+output_path = f"{BASE_OUTPUT_PATH}/normalized"
 
 (
     normalized_df

@@ -1,5 +1,11 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import sum as _sum
+import os
+
+BASE_OUTPUT_PATH = os.getenv(
+    "BASE_OUTPUT_PATH",
+    "s3a://cost-analytics-ashwin-0310"
+)
 
 spark = (
     SparkSession.builder
@@ -11,7 +17,7 @@ spark = (
 # ------------------------------------------------
 # Read Stage 1 normalized events (Parquet)
 # ------------------------------------------------
-input_path = "/home/ashwin/spark_outputs/stage1_normalized"
+input_path = f"{BASE_OUTPUT_PATH}/normalized"
 
 events_df = spark.read.parquet(input_path)
 
@@ -40,7 +46,7 @@ daily_cost_df.show(truncate=False)
 # ------------------------------------------------
 # Write curated fact (Parquet)
 # ------------------------------------------------
-output_path = "/home/ashwin/spark_outputs/stage2_account_service_day_cost"
+output_path = f"{BASE_OUTPUT_PATH}/facts/daily_account_cost"
 
 (
     daily_cost_df
