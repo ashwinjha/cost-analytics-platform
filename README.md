@@ -173,10 +173,7 @@ This execution validates:
 
 ---
 
-### 4.2 Repository Structure (Keep mostly same, slight polish)
-
-```md
-### 4.2 Repository Structure
+### 4.2 Repository Structure 
 
 ```text
 pipeline/
@@ -524,6 +521,7 @@ This preserves a strict separation between:
 ---
 
 ### 7.1 RAG Flow
+
 
 ```text
 Canonical Daily Account Dataset (S3 / Athena)
