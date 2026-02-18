@@ -27,9 +27,9 @@ The system transforms raw billing events into canonical, partitioned financial d
 ### PART III — Validation & Evidence
 11. [Execution Evidence](#11-execution-evidence)
 12. [Design Decisions & Tradeoffs](#12-design-decisions--tradeoffs)
-13. [Key Engineering Learnings](#13-key-engineering-learnings-)
-14. [Business Impact](#14-business-impact-)
-15. [Project Highlights](#15-project-highlights-)
+13. [Key Engineering Learnings](#13-key-engineering-learnings)
+14. [Business Impact](#14-business-impact)
+15. [Project Highlights](#15-project-highlights)
 
 ---
 
@@ -1080,7 +1080,7 @@ Streaming capabilities were implemented as an architectural extension, not as th
 
 ---
 
-## 13. Key Engineering Learnings 
+## 13. Key Engineering Learnings
 
 Implementing the platform surfaced realistic cloud engineering constraints:
 
@@ -1094,7 +1094,7 @@ These constraints reflect common production considerations in cloud-based data p
 
 ---
 
-## 14. Business Impact 
+## 14. Business Impact
 
 This platform demonstrates how structured data engineering and GenAI capabilities can be combined to improve financial observability.
 
@@ -1121,7 +1121,7 @@ The RAG layer reduces manual anomaly investigation time by:
 
 ---
 
-## 15. Project Highlights 
+## 15. Project Highlights
 
 - Canonical data modeling with explicit grain ownership
 - Partitioned lakehouse architecture (Spark + S3 + Athena)
