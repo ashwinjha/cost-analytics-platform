@@ -8,6 +8,32 @@ The system transforms raw billing events into canonical, partitioned financial d
 
 ---
 
+---
+
+## Table of Contents
+
+1. [Problem Statement](#1-problem-statement)
+### PART I — Core Data Platform (Data Engineering)
+2. [Architecture Overview — Core Data Platform](#2-architecture-overview--core-data-platform)
+3. [Cloud Deployment (Implemented)](#3-cloud-deployment-implemented)
+4. [Data Pipeline (Spark + S3 + Athena)](#4-data-pipeline-spark--s3--athena)
+5. [Warehouse & Streaming Extensions](#5-warehouse--streaming-extensions)
+6. [Observability & Operational Controls](#6-observability--operational-controls)
+### PART II — GenAI Extension (RAG + LLM Layer)
+7. [GenAI Architecture Overview](#7-genai-architecture-overview)
+8. [GenAI RAG Pipeline](#8-genai-rag-pipeline)
+9. [API Layer](#9-api-layer)
+10. [Monitoring & Observability (GenAI Layer)](#10-monitoring--observability-genai-layer)
+### PART III — Validation & Evidence
+11. [Execution Evidence](#11-execution-evidence)
+12. [Design Decisions & Tradeoffs](#12-design-decisions--tradeoffs)
+13. [Key Engineering Learnings](#13-key-engineering-learnings-)
+14. [Business Impact](#14-business-impact-)
+15. [Project Highlights](#15-project-highlights-)
+
+---
+
+
 ## 1. Problem Statement
 
 Cloud cost and usage data introduces several non-trivial data engineering challenges:
@@ -967,7 +993,7 @@ While streaming and warehouse extensions were implemented for architectural comp
 
 ---
 
-### 12.1 Batch vs Streaming ~~ We did incorporate streaming didnt we? 
+### 12.1 Batch vs Streaming 
 
 **Primary Architecture** : Batch processing (T+1 model)
 
@@ -1037,7 +1063,7 @@ Partitioned Parquet in S3 enables scalable analytical querying.
 
 ---
 
-### 12.5 Cost vs Freshness ~~ We did incorporate streaming, right? 
+### 12.5 Cost vs Freshness 
 
 **Decision:** Cost-optimized batch architecture
 
@@ -1054,7 +1080,7 @@ Streaming capabilities were implemented as an architectural extension, not as th
 
 ---
 
-## 13. Key Engineering Learnings ~~
+## 13. Key Engineering Learnings 
 
 Implementing the platform surfaced realistic cloud engineering constraints:
 
@@ -1068,7 +1094,7 @@ These constraints reflect common production considerations in cloud-based data p
 
 ---
 
-## 14. Business Impact ~~
+## 14. Business Impact 
 
 This platform demonstrates how structured data engineering and GenAI capabilities can be combined to improve financial observability.
 
@@ -1095,7 +1121,7 @@ The RAG layer reduces manual anomaly investigation time by:
 
 ---
 
-## 15. Project Highlights ~~
+## 15. Project Highlights 
 
 - Canonical data modeling with explicit grain ownership
 - Partitioned lakehouse architecture (Spark + S3 + Athena)
